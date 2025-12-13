@@ -7,7 +7,10 @@ def iterative_scaling_bt(match_results: list[tuple[int, int]],
                          tolerance: float = 1e-6) -> dict[int, float]:
     """
     Implements the Iterative Scaling Algorithm (ISA) for the Bradley-Terry model 
-    MLE based on the update rule in Equation (4) (or similar) from the BT literature.
+    MLE based on the update rule in Equation (4) from:
+    
+    M. E. J. Newman. Efficient Computation of Rankings from Pairwise Comparisons. JMLR, 24(238):1−25, 2023.
+    https://jmlr.org/papers/v24/22-1086.html
 
     Args:
         match_results: A list of tuples (i, j), where i won over j.
