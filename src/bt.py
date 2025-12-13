@@ -94,7 +94,7 @@ def iterative_scaling_bt(match_results: list[tuple[int, int]],
         max_change = np.max(np.abs(pi - pi_prev))
         
         # Optional: Print iteration status
-        if (t + 1) % 100 == 0 or t == 0: 
+        if (t + 1) % 1000 == 0 or t == 0: 
             print(f"  Iteration {t+1}: Max parameter change = {max_change:.6f}")
         
         if max_change < tolerance:

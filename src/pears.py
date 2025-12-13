@@ -1,11 +1,6 @@
+import numpy as np
 import pandas as pd
 from bt import iterative_scaling_bt
-
-def load_csv(filepath):
-    """
-    Load the CSV file into a pandas DataFrame.
-    """
-    return pd.read_csv(filepath)
 
 def load_key(filepath):
     """
@@ -24,7 +19,22 @@ def extract_comparisons(df):
     print('Extracting comparisons from DataFrame...')
     comparisons = []
     weights = []
+    forecasts = {}
     for _, row in df.iterrows():
+        # Extract percentage from format like "61-80%"
+        range_str = row.iloc[-1]  # Last column
+        if pd.isna(range_str):
+            continue
+        # Parse range and use midpoint
+        range_str = str(range_str).replace('%', '').strip()
+        parts = range_str.split('-')
+        if len(parts) == 2:
+            lb = round(int(parts[0]) / 10) * 10
+            ub = round(int(parts[1]) / 10) * 10
+            midpoint = float((lb + ub) / 2 / 100)
+        else:
+            continue
+
         if row['strength'] == 0:  # TODO: incorporate ties
             continue
         pair = row['pair'].split()
@@ -40,7 +50,11 @@ def extract_comparisons(df):
             continue  # Invalid preference
         comparisons.append((winner, loser))
         weights.append(row['strength'])
-    return comparisons, weights
+        if midpoint not in forecasts:
+            forecasts[midpoint] = [(winner, loser)]
+        else:
+            forecasts[midpoint].append((winner, loser))
+    return comparisons, weights, forecasts
 
 def fit_bradley_terry(comparisons, weights=None): # TODO: incorporate strength
     """
@@ -72,7 +86,7 @@ def fit_bradley_terry(comparisons, weights=None): # TODO: incorporate strength
     
     # Fit the model
     print("Fitting Bradley-Terry model...")
-    params = iterative_scaling_bt(indexed_comparisons, iterations=1000)
+    params = iterative_scaling_bt(indexed_comparisons, iterations=10000)
     
     return win_rates, {item: params[idx] for item, idx in item_to_idx.items()}
 
@@ -83,22 +97,110 @@ def get_rankings(params):
     """
     return sorted(params.keys(), key=lambda x: params[x], reverse=True)
 
+def compute_log_likelihood(comparisons, params):
+    """
+    Compute the log-likelihood of the global params w.r.t. participant-specific comparisons.
+    L(p) = sum_{ij} [w_ij * ln(p_i) - w_ij * ln(p_i + p_j)]
+    """
+    ll = 0.0
+    for idx, (winner, loser) in enumerate(comparisons):
+        # w_ij = weights[idx]
+        p_i = params[winner]
+        p_j = params[loser]
+        ll += np.log(p_i) - np.log(p_i + p_j)
+    return ll
+
+def compute_qq_plot(forecasts, comparisons):
+    """
+    Compute data for QQ plot comparing forecasted probabilities to actual outcomes.
+    Returns two lists: forecasted probabilities and actual outcomes (0 or 1).
+    """
+    forecasted_probs = []
+    actual_probs = []
+    n_per_bin = []
+    
+    for prob, pairs in forecasts.items():
+        winner_count = 0
+        loser_count = 0
+        for winner, loser in pairs:
+            winner_count += comparisons.count((winner, loser)) # TODO: not accounting for ties/0!
+            loser_count += comparisons.count((loser, winner))
+
+        forecasted_probs.append(prob)
+        actual_probs.append(winner_count / (winner_count + loser_count))
+        n_per_bin.append(winner_count + loser_count)
+
+        # Sort by forecasted probabilities
+        sorted_indices = np.argsort(forecasted_probs)
+        forecasted_probs = [forecasted_probs[i] for i in sorted_indices]
+        actual_probs = [actual_probs[i] for i in sorted_indices]
+        n_per_bin
+
+    return forecasted_probs, actual_probs, n_per_bin
+
+
 # Example usage (can be removed or used in main)
 if __name__ == "__main__":
-    df = load_csv("/Users/clarafy/code/pears/data/112725.csv")
+    df = pd.read_csv("/Users/clarafy/code/pears/data/112725.csv")
     key = load_key("/Users/clarafy/code/pears/data/112725-key.csv")
-    comparisons, weights = extract_comparisons(df)
-    win_rates, params = fit_bradley_terry(comparisons, weights)
-    rankings = get_rankings(params)
+    
+    # Overall rankings
+    global_comparisons, weights, _ = extract_comparisons(df)
+    win_rates, global_params = fit_bradley_terry(global_comparisons, weights)
+    rankings = get_rankings(global_params)
 
     print()
-    print("Fitted parameters:")
-    for item, val in params.items():
+    print("Global fitted parameters:")
+    for item, val in global_params.items():
         print(f"{item}: {val}")
     print()
 
-    print("Rankings:")
+    print("----- Global Ranking -----")
     for r in rankings:
         resort_name = key.get(r, r)  # Use real name if available, else letter
-        rank = rankings.index(r) + 1
-        print(f"{rank}. {resort_name}: {params[r]:.4f} (win rate: {win_rates.get(r, 0):.3f})")
+        print(f"{resort_name}: {global_params[r]:.4f} (win rate: {win_rates.get(r, 0):.3f})")
+
+    print("\n--- Rankings for each Participant---")
+    
+    # Rankings per unique name
+    grouped = df.groupby('name')
+    participant_lls = []
+    participant_eces = []
+    
+    for name, group_df in grouped:
+        comparisons, weights, forecasts = extract_comparisons(group_df)
+        if not comparisons:
+            continue
+        ll = compute_log_likelihood(comparisons, global_params) # participant-specific log-likelihood under global
+        forecasted_probs, actual_probs, n_per_bin = compute_qq_plot(forecasts, global_comparisons)
+        # assert(np.sum(n_per_bin) == len(global_comparisons)) # participants may not forecast all possible prob values
+        ece = np.sum(n_per_bin * np.abs(forecasted_probs)) / np.sum(n_per_bin)
+        win_rates, params = fit_bradley_terry(comparisons, weights)
+
+        rankings = get_rankings(params)
+        
+        print("\nRankings for {} (global log-likelihood: {:.4f}):".format(name, ll))
+        for r in rankings:
+            resort_name = key.get(r, r)
+            print(f"{resort_name}: {params[r]:.4f} (win rate: {win_rates.get(r, 0):.3f})")
+        print()
+
+        print("QQ plot data (ECE = {:.4f}):".format(ece))
+        for fp, ap in zip(forecasted_probs, actual_probs):
+            print(f"Forecasted: {fp:.3f}, Actual: {ap:.3f}")
+        print()
+        
+        participant_lls.append((name, ll))
+        participant_eces.append((name, ece))
+    
+    # Sort and print participants by log-likelihood
+    participant_lls.sort(key=lambda x: x[1])
+    print("\n--- Participants by Log-Likelihood (increasing) ---")
+    for name, ll in participant_lls:
+        print(f"{name}: {ll:.4f}")
+
+    # Sort and print participants by ECE (increasing)
+    participant_eces.sort(key=lambda x: x[1])
+    print("\n--- Participants by ECE (increasing) ---")
+    for name, ece in participant_eces:
+        print(f"{name}: {ece:.4f}")
