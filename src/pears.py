@@ -195,12 +195,12 @@ if __name__ == "__main__":
     
     # Sort and print participants by log-likelihood
     participant_lls.sort(key=lambda x: x[1])
-    print("\n--- Participants by Log-Likelihood (increasing) ---")
+    print("\n--- Participants by Log-Likelihood under Global Parameters (increasing) ---")
     for name, ll in participant_lls:
         print(f"{name}: {ll:.4f}")
 
     # Sort and print participants by ECE (increasing)
     participant_eces.sort(key=lambda x: x[1])
-    print("\n--- Participants by ECE (increasing) ---")
+    print("\n--- Participants by Expected Calibration Error (increasing) ---")
     for name, ece in participant_eces:
         print(f"{name}: {ece:.4f}")
