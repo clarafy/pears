@@ -1,0 +1,61 @@
+name,row,pair,preference,strength,forecast
+Ivan Wong,1,A B,B,2,81-100%
+Ivan Wong,2,G H,G,1,61-80%
+Ivan Wong,3,I K,K,2,81-100%
+Ivan Wong,4,C D,None,0,61-80%
+Ivan Wong,5,J K,None,0,41-60%
+Ivan Wong,6,E G,E,1,61-80%
+Ivan Wong,7,L A,L,2,81-100%
+Ivan Wong,8,H I,I,1,81-100%
+Ivan Wong,9,D E,D,1,61-80%
+Ivan Wong,10,K A,K,2,81-100%
+Ivan Wong,11,C E,C,1,41-60%
+Ivan Wong,12,F I,I,2,81-100%
+Ivan Wong,13,B C,C,1,61-80%
+Ivan Wong,14,E F,E,2,81-100%
+Ivan Wong,15,G I,None,0,61-80%
+Ivan Wong,16,K L,K,2,61-80%
+Ivan Wong,17,A C,C,2,81-100%
+Ivan Wong,18,I J,J,1,61-80%
+Ivan Wong,19,F G,F,1,61-80%
+Ivan Wong,20,H K,K,1,61-80%
+Yoke Harn,1,D F,D,1,61-80%
+Yoke Harn,2,I J,J,2,61-80%
+Yoke Harn,3,F G,G,1,41-60%
+Yoke Harn,4,B C,C,1,21-40%
+Yoke Harn,5,K L,K,2,61-80%
+Yoke Harn,6,L A,L,2,81-100%
+Yoke Harn,7,H K,K,2,61-80%
+Yoke Harn,8,A B,B,2,61-80%
+Yoke Harn,9,E F,None,0,41-60%
+Yoke Harn,10,J L,J,2,81-100%
+Yoke Harn,11,C D,None,0,61-80%
+Yoke Harn,12,F H,F,1,21-40%
+Yoke Harn,13,G H,G,2,61-80%
+Yoke Harn,14,K B,K,2,81-100%
+Yoke Harn,15,D E,E,1,21-40%
+Yoke Harn,16,A D,D,2,81-100%
+Yoke Harn,17,J K,J,1,41-60%
+Yoke Harn,18,L B,L,1,21-40%
+Yoke Harn,19,H I,None,0,41-60%
+Yoke Harn,20,B D,D,1,61-80%
+Petrina,1,B D,D,2,81-100%
+Petrina,2,E F,E,2,61-80%
+Petrina,3,J L,J,1,41-60%
+Petrina,4,G H,G,2,81-100%
+Petrina,5,I J,I,1,61-80%
+Petrina,6,F H,F,1,61-80%
+Petrina,7,K L,K,1,None
+Petrina,8,A B,A,1,41-60%
+Petrina,9,D E,E,1,41-60%
+Petrina,10,G J,G,1,61-80%
+Petrina,11,C D,D,2,61-80%
+Petrina,12,L B,L,2,81-100%
+Petrina,13,H I,I,2,81-100%
+Petrina,14,D F,F,1,61-80%
+Petrina,15,B C,C,1,41-60%
+Petrina,16,F G,G,1,41-60%
+Petrina,17,L A,L,2,81-100%
+Petrina,18,H J,J,2,81-100%
+Petrina,19,I L,I,2,61-80%
+Petrina,20,J K,K,1,41-60%
