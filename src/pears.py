@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from bt import iterative_scaling_bt
+import argparse
 
 def load_key(filepath):
     """
@@ -141,8 +142,13 @@ def compute_qq_plot(forecasts, comparisons):
 
 # Example usage (can be removed or used in main)
 if __name__ == "__main__":
-    df = pd.read_csv("/Users/clarafy/code/pears/data/112725.csv")
-    key = load_key("/Users/clarafy/code/pears/data/112725-key.csv")
+    parser = argparse.ArgumentParser(description="Bradley-Terry paired comparison analysis")
+    parser.add_argument("--data", type=str, required=True, help="Path to the main CSV data file")
+    parser.add_argument("--key", type=str, required=True, help="Path to the key CSV file")
+    args = parser.parse_args()
+
+    df = pd.read_csv(args.data)
+    key = load_key(args.key)
     
     # Overall rankings
     global_comparisons, weights, _ = extract_comparisons(df)
@@ -158,7 +164,7 @@ if __name__ == "__main__":
     print("----- Global Ranking -----")
     for r in rankings:
         resort_name = key.get(r, r)  # Use real name if available, else letter
-        print(f"{resort_name}: {global_params[r]:.4f} (win rate: {win_rates.get(r, 0):.3f})")
+        print(f"{rankings.index(r) + 1}. {resort_name}: {global_params[r]:.4f} (win rate: {win_rates.get(r, 0):.3f})")
 
     print("\n--- Rankings for each Participant---")
     
@@ -174,7 +180,7 @@ if __name__ == "__main__":
         ll = compute_log_likelihood(comparisons, global_params) # participant-specific log-likelihood under global
         forecasted_probs, actual_probs, n_per_bin = compute_qq_plot(forecasts, global_comparisons)
         # assert(np.sum(n_per_bin) == len(global_comparisons)) # participants may not forecast all possible prob values
-        ece = np.sum(n_per_bin * np.abs(forecasted_probs)) / np.sum(n_per_bin)
+        ece = np.sum(n_per_bin * np.abs(forecasted_probs)) / np.sum(n_per_bin)  # HERE: normalization?
         win_rates, params = fit_bradley_terry(comparisons, weights)
 
         rankings = get_rankings(params)
@@ -196,11 +202,11 @@ if __name__ == "__main__":
     # Sort and print participants by log-likelihood
     participant_lls.sort(key=lambda x: x[1])
     print("\n--- Participants by Log-Likelihood under Global Parameters (increasing) ---")
-    for name, ll in participant_lls:
-        print(f"{name}: {ll:.4f}")
+    for i, (name, ll) in enumerate(participant_lls, 1):
+        print(f"{i}. {name}: {ll:.4f}")
 
     # Sort and print participants by ECE (increasing)
     participant_eces.sort(key=lambda x: x[1])
     print("\n--- Participants by Expected Calibration Error (increasing) ---")
-    for name, ece in participant_eces:
-        print(f"{name}: {ece:.4f}")
+    for i, (name, ece) in enumerate(participant_eces, 1):
+        print(f"{i}. {name}: {ece:.4f}")
