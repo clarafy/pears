@@ -52,6 +52,30 @@ poetry run pre-commit run --all-files
 poetry run pre-commit autoupdate
 ```
 
+### Version Management
+
+This project uses [bump-my-version](https://github.com/callowayproject/bump-my-version) for semantic versioning.
+
+```bash
+# Bump patch version (0.1.0 → 0.1.1) - bug fixes
+poetry run bump-my-version bump patch
+
+# Bump minor version (0.1.0 → 0.2.0) - new features
+poetry run bump-my-version bump minor
+
+# Bump major version (0.1.0 → 1.0.0) - breaking changes
+poetry run bump-my-version bump major
+
+# Preview changes without committing (dry-run)
+poetry run bump-my-version bump --dry-run --verbose patch
+```
+
+Each bump command will:
+1. Update version in `pyproject.toml` and `src/pears/__init__.py`
+2. Create a git commit with message "Bump version: X → Y"
+3. Create a git tag `vX.Y.Z`
+4. Leave you ready to push: `git push && git push --tags`
+
 ## Quick Start
 
 ```python
