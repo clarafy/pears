@@ -2,6 +2,10 @@
 
 Statistical ranking models with uncertainty quantification.
 
+To analyze data from Thanksgiving 2025, run
+
+`poetry run python src/pears.py`
+
 ## Installation
 
 For development (installs package + all dependencies in editable mode):
