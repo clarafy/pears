@@ -9,9 +9,9 @@ repository = "https://github.com/domfj/pears.git"
 packages = [{include = "pears", from = "src"}]
 
 [tool.poetry.dependencies]
-python = "^3.9"
-numpy = "^1.20"
-scipy = "^1.7"
+python = "^3.11"
+numpy = "^2.4"
+scipy = "^1.16"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0"
