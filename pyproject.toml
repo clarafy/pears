@@ -2,10 +2,10 @@
 name = "pears"
 version = "0.1.0"
 description = "Statistical ranking models with uncertainty quantification"
-authors = ["Clara Fannjiang"]
+authors = ["Clara Fannjiang", "Dominic Fannjiang"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/domfj/pears.git"
+repository = "https://github.com/clarafy/pears.git"
 packages = [{include = "pears", from = "src"}]
 
 [tool.poetry.dependencies]
