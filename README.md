@@ -7,7 +7,7 @@ Statistical ranking models with uncertainty quantification.
 For development (installs package + all dependencies in editable mode):
 
 ```bash
-git clone https://github.com/domfj/pears.git
+git clone https://github.com/clarafy/pears.git
 cd pears
 poetry install
 ```
@@ -15,7 +15,7 @@ poetry install
 For users installing from GitHub:
 
 ```bash
-pip install git+https://github.com/domfj/pears.git
+pip install git+https://github.com/clarafy/pears.git
 ```
 
 ### Development Workflow
