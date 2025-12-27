@@ -4,16 +4,34 @@ Statistical ranking models with uncertainty quantification.
 
 ## Installation
 
-From the repository:
+For development (installs package + all dependencies in editable mode):
 
 ```bash
-pip install -e /path/to/pears
+git clone https://github.com/domfj/pears.git
+cd pears
+poetry install
 ```
 
-Or from GitHub:
+For users installing from GitHub:
 
 ```bash
 pip install git+https://github.com/domfj/pears.git
+```
+
+### Development Workflow
+
+```bash
+# Run tests
+poetry run pytest
+
+# Activate virtual environment
+poetry shell
+
+# Add a new dependency
+poetry add package-name
+
+# Add a dev dependency
+poetry add --group dev package-name
 ```
 
 ## Quick Start
