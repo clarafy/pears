@@ -1,0 +1,42 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+exclude: '^src/(bt|pears)\.py$'
+
+repos:
+  # Standard pre-commit hooks for basic file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: debug-statements
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Ruff - Modern Python linter and formatter (replaces black, isort, flake8, etc.)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.10
+    hooks:
+      # Run the linter first with auto-fix
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      # Run the formatter after linting
+      - id: ruff-format
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - numpy>=2.4
+          - scipy>=1.16
+        args: [--config-file=pyproject.toml]
+        # Only run on source files, not tests (tests have no test files yet)
+        files: ^src/pears/

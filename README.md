@@ -36,6 +36,12 @@ poetry add package-name
 
 # Add a dev dependency
 poetry add --group dev package-name
+
+# Run pre-commit hooks manually
+poetry run pre-commit run --all-files
+
+# Update pre-commit hook versions
+poetry run pre-commit autoupdate
 ```
 
 ## Quick Start

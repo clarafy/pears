@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.stats import norm
 
-from ..base import RankingStrategy
 from ...models.base import BaseRankingModel
+from ..base import RankingStrategy
 
 
 class ConfidenceIntervalRankingStrategy(RankingStrategy):

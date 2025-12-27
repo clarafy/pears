@@ -1,12 +1,13 @@
-import numpy as np
 from collections import defaultdict
+
+import numpy as np
 
 from ..base import BaseRankingModel
 
 
 def iterative_scaling_bt(
     match_results: list[tuple[int, int]],
-    initial_theta: dict[int, float] = None,
+    initial_theta: dict[int, float] | None = None,
     iterations: int = 20,
     tolerance: float = 1e-6,
 ) -> dict[int, float]:
@@ -14,7 +15,7 @@ def iterative_scaling_bt(
 
     Based on the update rule in Equation (4) from:
     M. E. J. Newman. Efficient Computation of Rankings from Pairwise Comparisons.
-    JMLR, 24(238):1−25, 2023.
+    JMLR, 24(238):1-25, 2023.
     https://jmlr.org/papers/v24/22-1086.html
 
     Parameters
@@ -38,25 +39,24 @@ def iterative_scaling_bt(
         for winner, loser in match_results:
             unique_items.add(winner)
             unique_items.add(loser)
-        initial_theta = {item: 1.0 for item in unique_items}
+        initial_theta = dict.fromkeys(unique_items, 1.0)
 
     item_ids = sorted(initial_theta.keys())
 
     # Calculate W_i (total wins for item i)
-    W = defaultdict(int)
+    W: defaultdict[int, int] = defaultdict(int)
     for winner, _ in match_results:
         W[winner] += 1
 
     # Calculate n_ij (total comparisons between i and j)
-    N = defaultdict(lambda: defaultdict(int))
+    N: defaultdict[int, defaultdict[int, int]] = defaultdict(lambda: defaultdict(int))
     for winner, loser in match_results:
         N[winner][loser] += 1
         N[loser][winner] += 1
 
     pi = np.array([initial_theta[i] for i in item_ids], dtype=float)
-    item_to_index = {item_id: i for i, item_id in enumerate(item_ids)}
 
-    for t in range(iterations):
+    for _ in range(iterations):
         pi_prev = pi.copy()
 
         for i_idx, i in enumerate(item_ids):
@@ -96,10 +96,10 @@ class BradleyTerryModel(BaseRankingModel):
     using iterative scaling.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the Bradley-Terry model."""
-        self.match_results_ = None
-        self.item_ids_ = None
+        self.match_results_: list[tuple[int, int]] | None = None
+        self.item_ids_: list[int] | None = None
 
     def fit(self, comparisons: list[tuple[int, int]]) -> None:
         """Fit the Bradley-Terry model to comparison data.
@@ -144,14 +144,15 @@ class BradleyTerryModel(BaseRankingModel):
 
         winner_id, loser_id = comparison
 
+        assert self.item_ids_ is not None, "Model must be fit before computing log likelihood"
         try:
             winner_idx = self.item_ids_.index(winner_id)
             loser_idx = self.item_ids_.index(loser_id)
-        except ValueError:
-            raise ValueError(f"Unknown item ID in comparison: {comparison}")
+        except ValueError as e:
+            raise ValueError(f"Unknown item ID in comparison: {comparison}") from e
 
         pi_winner = self.estimates_[winner_idx]
         pi_loser = self.estimates_[loser_idx]
 
         # Log likelihood: log(pi_i / (pi_i + pi_j))
-        return np.log(pi_winner) - np.log(pi_winner + pi_loser)
+        return float(np.log(pi_winner) - np.log(pi_winner + pi_loser))

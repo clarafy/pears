@@ -1,7 +1,7 @@
 import numpy as np
 
-from ..base import RankingStrategy
 from ...models.base import BaseRankingModel
+from ..base import RankingStrategy
 
 
 class ScoreRankingStrategy(RankingStrategy):

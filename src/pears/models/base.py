@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+
 import numpy as np
 
 
@@ -8,6 +9,9 @@ class BaseRankingModel(ABC):
     Subclasses must implement fit() and log_likelihood() methods.
     After fitting, the model should have estimates_ and covariance_ attributes.
     """
+
+    estimates_: np.ndarray
+    covariance_: np.ndarray
 
     @abstractmethod
     def fit(self, comparisons: list) -> None:
@@ -26,13 +30,13 @@ class BaseRankingModel(ABC):
         pass
 
     @abstractmethod
-    def log_likelihood(self, comparison) -> float:
+    def log_likelihood(self, comparison: tuple[int, int]) -> float:
         """Compute log likelihood of a single comparison under the fitted model.
 
         Parameters
         ----------
-        comparison
-            A single comparison (format depends on the concrete model implementation).
+        comparison : tuple[int, int]
+            A tuple (winner_id, loser_id) representing a comparison.
 
         Returns
         -------
