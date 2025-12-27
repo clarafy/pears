@@ -22,6 +22,14 @@ For users installing from GitHub:
 pip install git+https://github.com/clarafy/pears.git
 ```
 
+To install a specific tagged version:
+
+```bash
+pip install git+https://github.com/clarafy/pears.git@v1.0.0
+```
+
+Replace `v1.0.0` with the desired version tag.
+
 ### Development Workflow
 
 ```bash
