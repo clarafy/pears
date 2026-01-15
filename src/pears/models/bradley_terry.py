@@ -1,8 +1,11 @@
 from collections import defaultdict
+from copy import deepcopy
 
 import numpy as np
 
 from pears.data import PairwiseComparisonData
+from pears.encoders import SequentialEncoder
+from pears.models.base import require_fit
 
 
 def iterative_scaling_bt(
@@ -98,10 +101,11 @@ class BradleyTerryModel:
 
     def __init__(self) -> None:
         """Initialize the Bradley-Terry model."""
-        self.match_results_: list[tuple[int, int]] | None = None
-        self.item_ids_: list[int] | None = None
+        self.fitted_: bool = False
+        self.params_: dict[int, float] | None = None
+        self.encoder_: SequentialEncoder | None = None
 
-    def fit(self, comparisons: PairwiseComparisonData) -> None:
+    def fit(self, data: PairwiseComparisonData) -> None:
         """Fit the Bradley-Terry model to comparison data.
 
         Parameters
@@ -112,11 +116,17 @@ class BradleyTerryModel:
         Returns
         -------
         None
-            Updates estimates_ and item_ids_ attributes in-place.
+            Updates params_ and encoder_ in place
         """
-        self.match_results_ = comparisons.encoded_observations
+        self.match_results_ = data.encoded_observations
 
         # Fit model using iterative scaling
-        pi_dict = iterative_scaling_bt(comparisons.encoded_observations)
-        self.item_ids_ = sorted(pi_dict.keys())
-        self.estimates_ = np.array([pi_dict[item_id] for item_id in self.item_ids_])
+        self.params_ = iterative_scaling_bt(data.encoded_observations)
+        self.encoder_ = deepcopy(data.encoder)
+        self.fitted_ = True
+
+    @require_fit
+    def scores(self) -> dict[str, float]:
+        assert self.params_ is not None
+        assert self.encoder_ is not None
+        return {self.encoder_.decode(item_idx): score for item_idx, score in self.params_.items()}
