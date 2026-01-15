@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from ..base import BaseRankingModel
+from pears.data import PairwiseComparisonData
 
 
 def iterative_scaling_bt(
@@ -88,7 +88,7 @@ def iterative_scaling_bt(
     return final_pi
 
 
-class BradleyTerryModel(BaseRankingModel):
+class BradleyTerryModel:
     """Bradley-Terry model for ranking from pairwise comparisons.
 
     The Bradley-Terry model estimates skill parameters for each item based on
@@ -101,58 +101,22 @@ class BradleyTerryModel(BaseRankingModel):
         self.match_results_: list[tuple[int, int]] | None = None
         self.item_ids_: list[int] | None = None
 
-    def fit(self, comparisons: list[tuple[int, int]]) -> None:
+    def fit(self, comparisons: PairwiseComparisonData) -> None:
         """Fit the Bradley-Terry model to comparison data.
 
         Parameters
         ----------
-        comparisons : list[tuple[int, int]]
-            List of tuples (winner_id, loser_id) indicating pairwise comparisons.
+        comparisons : PairwiseComparisonData
+            Pairwise comparison data containing win/loss observations.
 
         Returns
         -------
         None
-            Updates estimates_ and covariance_ attributes in-place.
+            Updates estimates_ and item_ids_ attributes in-place.
         """
-        self.match_results_ = comparisons
+        self.match_results_ = comparisons.encoded_observations
 
         # Fit model using iterative scaling
-        pi_dict = iterative_scaling_bt(comparisons)
+        pi_dict = iterative_scaling_bt(comparisons.encoded_observations)
         self.item_ids_ = sorted(pi_dict.keys())
         self.estimates_ = np.array([pi_dict[item_id] for item_id in self.item_ids_])
-
-        # TODO: Implement covariance estimation (sandwich estimator or bootstrap)
-        self.covariance_ = np.eye(len(self.item_ids_))
-
-    def log_likelihood(self, comparison: tuple[int, int]) -> float:
-        """Compute log likelihood of a comparison under the fitted model.
-
-        The likelihood of item i beating item j is proportional to pi_i / (pi_i + pi_j).
-
-        Parameters
-        ----------
-        comparison : tuple[int, int]
-            Tuple (winner_id, loser_id).
-
-        Returns
-        -------
-        float
-            Log likelihood of the comparison.
-        """
-        if self.estimates_ is None:
-            raise ValueError("Model must be fit before computing log likelihood")
-
-        winner_id, loser_id = comparison
-
-        assert self.item_ids_ is not None, "Model must be fit before computing log likelihood"
-        try:
-            winner_idx = self.item_ids_.index(winner_id)
-            loser_idx = self.item_ids_.index(loser_id)
-        except ValueError as e:
-            raise ValueError(f"Unknown item ID in comparison: {comparison}") from e
-
-        pi_winner = self.estimates_[winner_idx]
-        pi_loser = self.estimates_[loser_idx]
-
-        # Log likelihood: log(pi_i / (pi_i + pi_j))
-        return float(np.log(pi_winner) - np.log(pi_winner + pi_loser))

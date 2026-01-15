@@ -1,5 +1,5 @@
 """Ranking models for pairwise comparison data."""
 
-from .base import BaseRankingModel
+from .bradley_terry import BradleyTerryModel
 
-__all__ = ["BaseRankingModel"]
+__all__ = ["BradleyTerryModel"]

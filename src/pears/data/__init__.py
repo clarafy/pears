@@ -1,5 +1,5 @@
 """Data structures for pairwise comparisons."""
 
-from .types import PairedComparison
+from .base import PairwiseComparisonData
 
-__all__ = ["PairedComparison"]
+__all__ = ["PairwiseComparisonData"]
