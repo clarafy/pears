@@ -57,3 +57,19 @@ class TestSequentialEncoder:
         # Test decode with invalid index raises KeyError
         with pytest.raises(KeyError):
             encoder.decode(5)
+
+    def test_deterministic_encoding(self):
+        """Test that encoder produces consistent mappings when created multiple times with same input."""
+        # Create two separate encoder instances with identical input
+        encoder1 = SequentialEncoder(["C", "A", "B"])
+        encoder2 = SequentialEncoder(["C", "A", "B"])  # Same exact input
+
+        # Both should produce identical encodings
+        assert encoder1.encode("A") == encoder2.encode("A")
+        assert encoder1.encode("B") == encoder2.encode("B")
+        assert encoder1.encode("C") == encoder2.encode("C")
+
+        # Verify the sorted order explicitly (A=0, B=1, C=2)
+        assert encoder1.encode("A") == 0
+        assert encoder1.encode("B") == 1
+        assert encoder1.encode("C") == 2

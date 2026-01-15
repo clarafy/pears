@@ -8,7 +8,7 @@ class SequentialEncoder:
     """
 
     def __init__(self, labels: Sequence[str]):
-        self._labels = list(set(labels))
+        self._labels = sorted(set(labels))
         self._to_idx = {label: idx for idx, label in enumerate(self._labels)}
         self._to_label = dict(enumerate(self._labels))
 
