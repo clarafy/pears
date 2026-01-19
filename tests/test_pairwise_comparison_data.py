@@ -11,7 +11,7 @@ class TestPairwiseComparisonData:
     def test_valid_initialization_and_encoding(self):
         """Test happy path: valid initialization and encoding."""
         items = ["A", "B", "C"]
-        observations = [["A", "B"], ["A", "C"], ["B", "C"]]
+        observations = [("A", "B"), ("A", "C"), ("B", "C")]
 
         data = PairwiseComparisonData(observations, items)
 
@@ -42,16 +42,16 @@ class TestPairwiseComparisonData:
         with pytest.raises(TypeError, match="observations must be a list"):
             PairwiseComparisonData("not a list", items)
 
-        # Observation not a list (string instead)
-        with pytest.raises(TypeError, match="observation at index 0 must be a list"):
+        # Observation not a list or tuple (string instead)
+        with pytest.raises(TypeError, match="observation at index 0 must be a list or tuple"):
             PairwiseComparisonData(["A", "B"], items)
 
         # Observation with wrong number of items
         with pytest.raises(ValueError, match="exactly 2 items"):
-            PairwiseComparisonData([["A", "B", "C"]], items)
+            PairwiseComparisonData([("A", "B", "C")], items)
 
         with pytest.raises(ValueError, match="exactly 2 items"):
-            PairwiseComparisonData([["A"]], items)
+            PairwiseComparisonData([("A",)], items)
 
     def test_validation_content(self):
         """Test content validation of observations."""
@@ -59,23 +59,23 @@ class TestPairwiseComparisonData:
 
         # Items not strings (integers)
         with pytest.raises(TypeError, match="observation at index 0 must contain strings"):
-            PairwiseComparisonData([[1, 2]], items)
+            PairwiseComparisonData([(1, 2)], items)
 
         # Identical items (winner == loser)
         with pytest.raises(ValueError, match="identical items"):
-            PairwiseComparisonData([["A", "A"]], items)
+            PairwiseComparisonData([("A", "A")], items)
 
         # Invalid item not in encoder
         with pytest.raises(ValueError, match="not found in items list"):
-            PairwiseComparisonData([["A", "D"]], items)
+            PairwiseComparisonData([("A", "D")], items)
 
         with pytest.raises(ValueError, match="not found in items list"):
-            PairwiseComparisonData([["D", "A"]], items)
+            PairwiseComparisonData([("D", "A")], items)
 
     def test_helper_methods(self):
         """Test __len__, __repr__, and num_items."""
         items = ["A", "B", "C"]
-        observations = [["A", "B"], ["C", "A"]]
+        observations = [("A", "B"), ("C", "A")]
         data = PairwiseComparisonData(observations, items)
 
         # Test __len__
@@ -88,3 +88,58 @@ class TestPairwiseComparisonData:
 
         # Test num_items property
         assert data.num_items == 3
+
+    def test_encoded_win_count_matrix_with_missing_observations(self):
+        """Test encoded_win_count_matrix with items that have missing observations."""
+        # Items A, B, C, D but D never appears in any observation
+        items = ["A", "B", "C", "D"]
+        observations = [("A", "B"), ("A", "C"), ("B", "C"), ("A", "B")]
+
+        data = PairwiseComparisonData(observations, items)
+        win_matrix = data.encoded_win_count_matrix()
+
+        # Verify shape
+        assert win_matrix.shape == (4, 4)
+
+        # Verify encoding: A=0, B=1, C=2, D=3
+        # A beat B twice and C once: W[0, 1] = 2, W[0, 2] = 1
+        assert win_matrix[0, 1] == 2
+        assert win_matrix[0, 2] == 1
+        # B beat C once: W[1, 2] = 1
+        assert win_matrix[1, 2] == 1
+
+        # Verify all other entries are 0
+        assert win_matrix[0, 0] == 0
+        assert win_matrix[0, 3] == 0
+        assert win_matrix[1, 0] == 0
+        assert win_matrix[1, 1] == 0
+        assert win_matrix[1, 3] == 0
+        assert win_matrix[2, :].sum() == 0  # C never beat anyone
+        assert win_matrix[3, :].sum() == 0  # D never appears
+
+    def test_encoded_comparison_matrix_with_missing_observations(self):
+        """Test encoded_comparison_matrix with items that have missing observations."""
+        # Items A, B, C, D but D never appears in any observation
+        items = ["A", "B", "C", "D"]
+        observations = [("A", "B"), ("A", "C"), ("B", "C"), ("B", "A")]
+
+        data = PairwiseComparisonData(observations, items)
+        comparison_matrix = data.encoded_comparison_matrix()
+
+        # Verify shape
+        assert comparison_matrix.shape == (4, 4)
+
+        # Verify encoding: A=0, B=1, C=2, D=3
+        # A vs B: A beat B once, B beat A once → N[0, 1] = 2
+        assert comparison_matrix[0, 1] == 2
+        assert comparison_matrix[1, 0] == 2  # Symmetric
+        # A vs C: A beat C once → N[0, 2] = 1
+        assert comparison_matrix[0, 2] == 1
+        assert comparison_matrix[2, 0] == 1  # Symmetric
+        # B vs C: B beat C once → N[1, 2] = 1
+        assert comparison_matrix[1, 2] == 1
+        assert comparison_matrix[2, 1] == 1  # Symmetric
+
+        # D has no observations, so all D rows/columns are 0
+        assert comparison_matrix[3, :].sum() == 0
+        assert comparison_matrix[:, 3].sum() == 0

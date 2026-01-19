@@ -2,6 +2,9 @@
 
 from collections.abc import Sequence
 
+import numpy as np
+from numpy.typing import NDArray
+
 from pears.encoders import SequentialEncoder
 
 
@@ -40,14 +43,14 @@ class PairwiseComparisonData:
     """
 
     encoder: SequentialEncoder
-    observations: list[list[str]]
+    observations: list[tuple[str, str]]
 
-    def __init__(self, observations: list[list[str]], items: Sequence[str]) -> None:
+    def __init__(self, observations: list[tuple[str, str]], items: Sequence[str]) -> None:
         """Initialize PairwiseComparisonData with validation.
 
         Parameters
         ----------
-        observations : list[list[str]]
+        observations : list[tuple[str, str]]
             List of pairwise comparisons where each comparison is [winner, loser].
         items : Sequence[str]
             Sequence of all possible items that can appear in comparisons.
@@ -60,10 +63,10 @@ class PairwiseComparisonData:
 
         # Validate each observation
         for i, obs in enumerate(observations):
-            # Check it's a list
-            if not isinstance(obs, list):
+            # Check it's a list or tuple
+            if not isinstance(obs, (list, tuple)):
                 raise TypeError(
-                    f"observation at index {i} must be a list, got {type(obs).__name__}"
+                    f"observation at index {i} must be a list or tuple, got {type(obs).__name__}"
                 )
 
             # Check it has exactly 2 items
@@ -111,6 +114,36 @@ class PairwiseComparisonData:
         return [
             (self.encoder.encode(obs[0]), self.encoder.encode(obs[1])) for obs in self.observations
         ]
+
+    def encoded_win_count_matrix(self) -> NDArray[np.int_]:
+        """
+        Computes the win matrix W where entry [i, j] is the count of times i beat j.
+
+        This matrix represents the empirical win results gathered from live user
+        interaction
+        """
+        # Initialize a dense matrix of zeros
+        win_matrix = np.zeros((self.num_items, self.num_items), dtype=int)
+
+        # Single pass O(T) over observations to populate the matrix
+        for winner_idx, loser_idx in self.encoded_observations:
+            # winner_idx is model i, loser_idx is model j
+            win_matrix[winner_idx, loser_idx] += 1
+
+        return win_matrix
+
+    def encoded_comparison_matrix(self) -> NDArray[np.int_]:
+        """
+        Computes the total comparison matrix N where N = W + W.T.
+
+        Entry [i, j] represents the total number of battles (samples) between
+        models i and j, regardless of the outcome.
+        """
+        # Calculate the win matrix first
+        W = self.encoded_win_count_matrix()
+
+        # The sum of W and its transpose yields the total n_ij
+        return W + W.T
 
     def __len__(self) -> int:
         """Return the number of pairwise comparisons.
