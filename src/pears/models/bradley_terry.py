@@ -93,6 +93,85 @@ def iterative_scaling_bt(
     return final_pi
 
 
+def compute_hessian(pi: np.ndarray, comparison_matrix: np.ndarray) -> np.ndarray:
+    """Compute Hessian matrix for Bradley-Terry model.
+
+    Parameters
+    ----------
+    pi : np.ndarray
+        Array of skill parameters (must sum to 1), shape (n,)
+    comparison_matrix : np.ndarray
+        Symmetric matrix where N[i,j] = total comparisons between i and j, shape (n, n)
+
+    Returns
+    -------
+    np.ndarray
+        Hessian matrix A of shape (n-1, n-1)
+    """
+    n = len(pi)
+    N = comparison_matrix
+
+    A = np.zeros((n - 1, n - 1))
+    for i in range(n - 1):
+        for j in range(i, n - 1):
+            if i == j:
+                # Diagonal: sum variance contributions over all possible opponents k
+                for k in range(n):
+                    if k != i:
+                        n_ik = N[i, k]
+                        if n_ik > 0:
+                            A[i, i] += n_ik * (pi[i] * pi[k]) / (pi[i] + pi[k]) ** 2
+            else:
+                # Off-diagonal: interaction term between i and j
+                n_ij = N[i, j]
+                if n_ij > 0:
+                    val = -n_ij * (pi[i] * pi[j]) / (pi[i] + pi[j]) ** 2
+                    A[i, j] = val
+                    A[j, i] = val
+    return A
+
+
+def compute_gradient_outer_product(pi: np.ndarray, win_count_matrix: np.ndarray) -> np.ndarray:
+    """Compute gradient outer product matrix for Bradley-Terry model.
+
+    Parameters
+    ----------
+    pi : np.ndarray
+        Array of skill parameters (must sum to 1), shape (n,)
+    win_count_matrix : np.ndarray
+        Matrix where W[i,j] = number of times i beat j, shape (n, n)
+
+    Returns
+    -------
+    np.ndarray
+        Gradient outer product matrix B of shape (n-1, n-1)
+    """
+    n = len(pi)
+    n_win = win_count_matrix
+
+    B = np.zeros((n - 1, n - 1))
+    for i in range(n - 1):
+        for j in range(i, n):
+            # Total battles between this specific pair
+            n_ij_total = n_win[i, j] + n_win[j, i]
+            if n_ij_total == 0:
+                continue
+
+            denom_sq = (pi[i] + pi[j]) ** 2
+
+            # Diagonal contribution for model i
+            B[i, i] += n_ij_total * (pi[j] ** 2 / denom_sq)
+
+            # Off-diagonal and diagonal contribution for model j
+            if j < n - 1:
+                off_diag_val = n_ij_total * (-pi[i] * pi[j] / denom_sq)
+                B[i, j] += off_diag_val
+                B[j, i] += off_diag_val
+                B[j, j] += n_ij_total * (pi[i] ** 2 / denom_sq)
+
+    return B
+
+
 class BradleyTerryModel:
     """Bradley-Terry model for ranking from pairwise comparisons.
 
@@ -106,6 +185,7 @@ class BradleyTerryModel:
         self.fitted_: bool = False
         self.params_: dict[int, float] | None = None
         self.encoder_: SequentialEncoder | None = None
+        self.confidence_intervals_: dict[int, tuple[float, float]] | None = None
 
     def fit(self, data: PairwiseComparisonData) -> None:
         """Fit the Bradley-Terry model to comparison data.
@@ -136,6 +216,7 @@ class BradleyTerryModel:
     @require_fit
     def confidence_intervals(
         self,
+        data: PairwiseComparisonData,
         method: str = "sandwich",
         alpha: float = 0.05,
         n_bootstrap: int = 1000,
@@ -177,173 +258,80 @@ class BradleyTerryModel:
 
         # Dispatch to appropriate method
         if method == "sandwich":
-            return self._sandwich_confidence_intervals(alpha)
-        return self._bootstrap_confidence_intervals(alpha, n_bootstrap, seed)
+            return self._sandwich_confidence_intervals(data, alpha)
+        return self._bootstrap_confidence_intervals(data, alpha, n_bootstrap, seed)
 
-    def _compute_fisher_information(self) -> np.ndarray:
-        """Compute Fisher Information Matrix for first n-1 parameters.
-
-        Returns
-        -------
-        np.ndarray
-            (n-1) x (n-1) Fisher Information Matrix, where n is the number of items.
-            The last item is treated as a reference (constrained) parameter.
-        """
+    def _compute_hessian_log_space(self, data: PairwiseComparisonData) -> np.ndarray:
+        """Computes the Hessian matrix (Bread) for M-1 parameters in log-space."""
         assert self.params_ is not None
-        assert self.encoder_ is not None
-
-        # Extract params as numpy array
         item_ids = sorted(self.params_.keys())
-        n = len(item_ids)
         pi = np.array([self.params_[i] for i in item_ids], dtype=float)
+        N = data.encoded_comparison_count_matrix()
+        return compute_hessian(pi, N)
 
-        # Build n_ij matrix (comparison counts)
-        N: defaultdict[int, defaultdict[int, int]] = defaultdict(lambda: defaultdict(int))
-        for winner, loser in self.match_results_:
-            N[winner][loser] += 1
-            N[loser][winner] += 1
-
-        # Compute (n-1) x (n-1) Fisher Information
-        # FIM[i,j] = sum_k n_ik / (pi_i + pi_k)^2  if i==j
-        # FIM[i,j] = n_ij / (pi_i + pi_j)^2        if i!=j
-        FIM = np.zeros((n - 1, n - 1), dtype=float)
-        for i in range(n - 1):
-            for j in range(n - 1):
-                if i == j:
-                    # Diagonal: sum over all opponents
-                    for k in range(n):
-                        if k != i:
-                            n_ik = N[item_ids[i]][item_ids[k]]
-                            if n_ik > 0:
-                                FIM[i, i] += n_ik / (pi[i] + pi[k]) ** 2
-                else:
-                    # Off-diagonal
-                    n_ij = N[item_ids[i]][item_ids[j]]
-                    if n_ij > 0:
-                        FIM[i, j] = n_ij / (pi[i] + pi[j]) ** 2
-
-        return FIM
-
-    def _compute_gradient_outer_product(self) -> np.ndarray:
-        """Compute B = sum of outer products of score gradients.
-
-        Returns
-        -------
-        np.ndarray
-            (n-1) x (n-1) matrix B = sum of outer products, where n is the number
-            of items. Used in sandwich covariance computation.
-        """
+    def _compute_gradient_outer_product_log_space(self, data: PairwiseComparisonData) -> np.ndarray:
+        """Computes the sum of gradient outer products (Meat) for M-1 parameters."""
         assert self.params_ is not None
-        assert self.encoder_ is not None
-
         item_ids = sorted(self.params_.keys())
-        n = len(item_ids)
         pi = np.array([self.params_[i] for i in item_ids], dtype=float)
+        W = data.encoded_win_count_matrix()
+        return compute_gradient_outer_product(pi, W)
 
-        B = np.zeros((n - 1, n - 1), dtype=float)
+    def _sandwich_confidence_intervals(
+        self, data: PairwiseComparisonData, alpha: float
+    ) -> dict[str, tuple[float, float]]:
+        """
+        Generates multiplicity-corrected CIs using the sandwich estimator.
 
-        for winner, loser in self.match_results_:
-            # Compute score vector for this observation
-            score = np.zeros(n - 1, dtype=float)
-
-            # Find indices (working with n-1 free parameters)
-            winner_idx = item_ids.index(winner)
-            loser_idx = item_ids.index(loser)
-
-            # Gradient contributions
-            if winner_idx < n - 1:
-                score[winner_idx] = 1 / pi[winner_idx] - 1 / (pi[winner_idx] + pi[loser_idx])
-            if loser_idx < n - 1:
-                score[loser_idx] = -1 / (pi[winner_idx] + pi[loser_idx])
-
-            # Outer product
-            B += np.outer(score, score)
-
-        return B
-
-    def _sandwich_confidence_intervals(self, alpha: float) -> dict[str, tuple[float, float]]:
-        """Compute sandwich robust confidence intervals.
-
-        Parameters
-        ----------
-        alpha : float
-            Significance level (e.g., 0.05 for 95% CIs)
-
-        Returns
-        -------
-        dict[str, tuple[float, float]]
-            Mapping from item label to (lower_bound, upper_bound) confidence interval.
+        The final interval for model i is derived as: xi_i +/- width_factor * sqrt(V_ii).
+        - xi_i: The BT coefficient in log-space (ln(pi_i)).
+        - width_factor: sqrt(chi2_critical_value / T), where T is total votes.
+        - V_ii: The diagonal element of the sandwich covariance matrix V = A^-1 B A^-1.
         """
         assert self.params_ is not None
         assert self.encoder_ is not None
-
-        # Get Fisher Information and gradient outer product
-        FIM = self._compute_fisher_information()
-        B = self._compute_gradient_outer_product()
-
-        # Compute sandwich covariance: V = FIM^-1 * B * FIM^-1
-        try:
-            FIM_inv = np.linalg.inv(FIM)
-        except np.linalg.LinAlgError as e:
-            raise ValueError(
-                "Fisher Information Matrix is singular. Model may be degenerate."
-            ) from e
-
-        V = FIM_inv @ B @ FIM_inv
-
-        # Extract standard errors
         item_ids = sorted(self.params_.keys())
         n = len(item_ids)
-
-        # Standard errors for first n-1 items
-        se = np.sqrt(np.diag(V))
-
-        # Compute SE for last item using delta method:
-        # Since π_n = 1 - sum(π_i), Var(π_n) = sum_i sum_j V[i,j]
-        se_last = np.sqrt(np.sum(V))
-
-        # Get z-score for confidence level
-        z = stats.norm.ppf(1 - alpha / 2)
-
-        # Build confidence intervals
-        cis: dict[str, tuple[float, float]] = {}
-        for idx, item_id in enumerate(item_ids):
-            pi_i = self.params_[item_id]
-            se_i = se[idx] if idx < n - 1 else se_last
-
-            # Handle edge case: π=0 (never won)
-            if pi_i == 0.0:
-                warnings.warn(
-                    f"Item {item_id} has π=0 (never won). CI is unreliable.",
-                    stacklevel=2,
-                )
-                ci_lower, ci_upper = 0.0, min(0.01, z * se_i)
-            else:
-                ci_lower = max(0.0, pi_i - z * se_i)
-                ci_upper = min(1.0, pi_i + z * se_i)
-
-            # Decode to string label
-            label = self.encoder_.decode(item_id)
-            cis[label] = (ci_lower, ci_upper)
-
-        # Warn if small sample
         n_obs = len(self.match_results_)
-        if n_obs < 30 or n_obs < 10 * n:
-            warnings.warn(
-                f"Small sample size (n={n_obs}, items={n}). "
-                "Asymptotic approximation may be unreliable. Consider using bootstrap.",
-                stacklevel=2,
-            )
+
+        # Calculate sandwich components
+        A = self._compute_hessian_log_space(data)
+        B = self._compute_gradient_outer_product_log_space(data)
+
+        # Robust Covariance calculation
+        A_inv = np.linalg.inv(A)
+        V = A_inv @ B @ A_inv
+
+        # Multiplicity correction using chi-squared for uniform validity
+        chi2_val = stats.chi2.ppf(1 - alpha, n - 1)
+        width_factor = np.sqrt(chi2_val / n_obs)
+
+        cis: dict[str, tuple[float, float]] = {}
+        for i in range(n):
+            label = self.encoder_.decode(item_ids[i])
+            # Point estimate transformed to log-space
+            xi_i = np.log(self.params_[item_ids[i]])
+
+            # Reference model (last item) is fixed at xi=0
+            se_i = np.sqrt(V[i, i]) if i < n - 1 else 0.0
+
+            cis[label] = (xi_i - width_factor * se_i, xi_i + width_factor * se_i)
 
         return cis
 
     def _bootstrap_confidence_intervals(
-        self, alpha: float, n_bootstrap: int, seed: int | None = None
+        self,
+        data: PairwiseComparisonData,
+        alpha: float,
+        n_bootstrap: int,
+        seed: int | None = None,
     ) -> dict[str, tuple[float, float]]:
         """Compute percentile bootstrap confidence intervals.
 
         Parameters
         ----------
+        data : PairwiseComparisonData
+            Pairwise comparison data (for compatibility, not used in bootstrap)
         alpha : float
             Significance level (e.g., 0.05 for 95% CIs)
         n_bootstrap : int

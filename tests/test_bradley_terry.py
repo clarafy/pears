@@ -1,9 +1,14 @@
 """Unit tests for BradleyTerryModel."""
 
+import numpy as np
 import pytest
 
 from pears.data import PairwiseComparisonData
-from pears.models.bradley_terry import BradleyTerryModel
+from pears.models.bradley_terry import (
+    BradleyTerryModel,
+    compute_gradient_outer_product,
+    compute_hessian,
+)
 
 
 @pytest.fixture
@@ -157,3 +162,97 @@ class TestBradleyTerryConfidenceIntervals:
             width_95 = ci_95[label][1] - ci_95[label][0]
             width_90 = ci_90[label][1] - ci_90[label][0]
             assert width_95 >= width_90 - 1e-6
+
+
+class TestHessianAndGradientFunctions:
+    """Test suite for standalone Hessian and gradient functions."""
+
+    def test_compute_hessian_small_case(self):
+        """Test Hessian computation with manually verified values.
+
+        Test case: 3 items with indices 0, 1, 2 (item 2 is reference).
+        pi = [0.5, 0.3, 0.2]
+        comparison_matrix[i,j] = total comparisons between i and j
+        """
+        pi = np.array([0.5, 0.3, 0.2])
+        comparison_matrix = np.array(
+            [
+                [0, 2, 1],  # Item 0: 2 comparisons with item 1, 1 with item 2
+                [2, 0, 1],  # Item 1: 2 comparisons with item 0, 1 with item 2
+                [1, 1, 0],  # Item 2: 1 comparison each with items 0 and 1
+            ]
+        )
+
+        result = compute_hessian(pi, comparison_matrix)
+
+        # Expected A (2x2) - computed for items 0 and 1 only
+        # A[0,0] = sum_{k≠0} N[0,k] * (pi[0]*pi[k]) / (pi[0]+pi[k])²
+        #        = N[0,1] * (0.5*0.3)/(0.8)² + N[0,2] * (0.5*0.2)/(0.7)²
+        #        = 2 * 0.15/0.64 + 1 * 0.1/0.49
+        #        = 0.46875 + 0.204081632653...
+        #        = 0.672831632653...
+        # A[1,1] = sum_{k≠1} N[1,k] * (pi[1]*pi[k]) / (pi[1]+pi[k])²
+        #        = N[1,0] * (0.3*0.5)/(0.8)² + N[1,2] * (0.3*0.2)/(0.5)²
+        #        = 2 * 0.15/0.64 + 1 * 0.06/0.25
+        #        = 0.46875 + 0.24
+        #        = 0.70875
+        # A[0,1] = A[1,0] = -N[0,1] * (pi[0]*pi[1]) / (pi[0]+pi[1])²
+        #                  = -2 * 0.15/0.64
+        #                  = -0.46875
+        expected = np.array(
+            [
+                [0.672831632653, -0.46875],
+                [-0.46875, 0.70875],
+            ]
+        )
+
+        assert result.shape == (2, 2)
+        np.testing.assert_allclose(result, expected, rtol=1e-10)
+
+    def test_compute_gradient_outer_product_small_case(self):
+        """Test gradient outer product with manually verified values.
+
+        Test case: 3 items with indices 0, 1, 2 (item 2 is reference).
+        pi = [0.5, 0.3, 0.2]
+        win_count_matrix[i,j] = number of times i beat j
+        """
+        pi = np.array([0.5, 0.3, 0.2])
+        win_count_matrix = np.array(
+            [
+                [0, 2, 1],  # Item 0 beat item 1 twice, item 2 once
+                [0, 0, 1],  # Item 1 beat item 2 once
+                [0, 0, 0],  # Item 2 never won (worst item)
+            ]
+        )
+
+        result = compute_gradient_outer_product(pi, win_count_matrix)
+
+        # Expected B (2x2) - computed for items 0 and 1 only
+        # Process pairs (i,j) where i < n-1:
+
+        # Pair (0,1): n_total = W[0,1] + W[1,0] = 2 + 0 = 2
+        #   B[0,0] += 2 * (pi[1]²) / (pi[0]+pi[1])² = 2 * 0.09/0.64 = 0.28125
+        #   B[0,1] = B[1,0] = -2 * (pi[0]*pi[1]) / 0.64 = -0.46875
+        #   B[1,1] += 2 * (pi[0]²) / 0.64 = 2 * 0.25/0.64 = 0.78125
+
+        # Pair (0,2): n_total = W[0,2] + W[2,0] = 1 + 0 = 1
+        #   B[0,0] += 1 * (pi[2]²) / (pi[0]+pi[2])² = 1 * 0.04/0.49 = 0.081632653061...
+        #   (No off-diagonal since j=2 is reference)
+
+        # Pair (1,2): n_total = W[1,2] + W[2,1] = 1 + 0 = 1
+        #   B[1,1] += 1 * (pi[2]²) / (pi[1]+pi[2])² = 1 * 0.04/0.25 = 0.16
+        #   (No off-diagonal since j=2 is reference)
+
+        # Final B matrix:
+        # B[0,0] = 0.28125 + 0.081632653061... = 0.362882653061...
+        # B[1,1] = 0.78125 + 0.16 = 0.94125
+        # B[0,1] = B[1,0] = -0.46875
+        expected = np.array(
+            [
+                [0.362882653061, -0.46875],
+                [-0.46875, 0.94125],
+            ]
+        )
+
+        assert result.shape == (2, 2)
+        np.testing.assert_allclose(result, expected, rtol=1e-10)

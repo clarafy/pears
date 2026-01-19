@@ -118,13 +118,13 @@ class TestPairwiseComparisonData:
         assert win_matrix[3, :].sum() == 0  # D never appears
 
     def test_encoded_comparison_matrix_with_missing_observations(self):
-        """Test encoded_comparison_matrix with items that have missing observations."""
+        """Test encoded_comparison_count_matrix with items that have missing observations."""
         # Items A, B, C, D but D never appears in any observation
         items = ["A", "B", "C", "D"]
         observations = [("A", "B"), ("A", "C"), ("B", "C"), ("B", "A")]
 
         data = PairwiseComparisonData(observations, items)
-        comparison_matrix = data.encoded_comparison_matrix()
+        comparison_matrix = data.encoded_comparison_count_matrix()
 
         # Verify shape
         assert comparison_matrix.shape == (4, 4)

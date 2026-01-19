@@ -132,7 +132,7 @@ class PairwiseComparisonData:
 
         return win_matrix
 
-    def encoded_comparison_matrix(self) -> NDArray[np.int_]:
+    def encoded_comparison_count_matrix(self) -> NDArray[np.int_]:
         """
         Computes the total comparison matrix N where N = W + W.T.
 
