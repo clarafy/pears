@@ -1,6 +1,7 @@
 """Type definitions and data structures for pairwise comparisons."""
 
 from collections.abc import Sequence
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -115,7 +116,7 @@ class PairwiseComparisonData:
             (self.encoder.encode(obs[0]), self.encoder.encode(obs[1])) for obs in self.observations
         ]
 
-    def encoded_win_count_matrix(self) -> NDArray[np.int_]:
+    def encoded_win_count_matrix(self, padding: float = 0) -> NDArray[Any]:
         """
         Computes the win matrix W where entry [i, j] is the count of times i beat j.
 
@@ -130,9 +131,9 @@ class PairwiseComparisonData:
             # winner_idx is model i, loser_idx is model j
             win_matrix[winner_idx, loser_idx] += 1
 
-        return win_matrix
+        return win_matrix + padding
 
-    def encoded_comparison_count_matrix(self) -> NDArray[np.int_]:
+    def encoded_comparison_count_matrix(self, padding: float = 0) -> NDArray[Any]:
         """
         Computes the total comparison matrix N where N = W + W.T.
 
@@ -140,10 +141,10 @@ class PairwiseComparisonData:
         models i and j, regardless of the outcome.
         """
         # Calculate the win matrix first
-        W = self.encoded_win_count_matrix()
+        W = self.encoded_win_count_matrix(padding=padding)
 
         # The sum of W and its transpose yields the total n_ij
-        return W + W.T
+        return cast(NDArray[Any], W + W.T)
 
     def __len__(self) -> int:
         """Return the number of pairwise comparisons.
@@ -177,3 +178,40 @@ class PairwiseComparisonData:
             Number of unique items in the encoder.
         """
         return len(self.encoder)
+
+    def sample(
+        self,
+        sample_size: int,
+        with_replacement: bool,
+        seed: int | None = None,
+        rng: np.random.Generator | None = None,
+    ) -> "PairwiseComparisonData":
+        """Resample observations with replacement.
+
+        Parameters
+        ----------
+        sample_size : int
+            Number of observations to sample.
+        with_replacement : bool
+            Whether to sample with replacement.
+        seed : int | None, default=None
+            Random seed for reproducibility. Used only if rng is not provided.
+        rng : np.random.Generator | None, default=None
+            Random number generator object. If provided, seed is ignored.
+
+        Returns
+        -------
+        PairwiseComparisonData
+            New dataset with resampled observations.
+        """
+        # If rng is provided, use it (for cases like bootstrap where state is managed externally)
+        # Otherwise create one from seed
+        if rng is None:
+            if seed is not None:
+                rng = np.random.Generator(np.random.PCG64(seed))
+            else:
+                rng = np.random.default_rng()
+
+        bootstrap_indices = rng.choice(len(self), size=sample_size, replace=with_replacement)
+        bootstrap_observations = [self.observations[i] for i in bootstrap_indices]
+        return PairwiseComparisonData(bootstrap_observations, self.encoder.items())

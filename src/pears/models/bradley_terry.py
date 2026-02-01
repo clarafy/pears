@@ -1,6 +1,6 @@
 import warnings
-from collections import defaultdict
 from copy import deepcopy
+from typing import cast
 
 import numpy as np
 from scipy import stats
@@ -11,11 +11,12 @@ from pears.models.base import require_fit
 
 
 def iterative_scaling_bt(
-    match_results: list[tuple[int, int]],
-    initial_theta: dict[int, float] | None = None,
+    win_count_matrix: np.ndarray,
+    comparison_count_matrix: np.ndarray,
+    initial_theta: np.ndarray | None = None,
     iterations: int = 20,
     tolerance: float = 1e-6,
-) -> dict[int, float]:
+) -> np.ndarray:
     """Iterative Scaling Algorithm for Bradley-Terry model MLE.
 
     Based on the update rule in Equation (4) from:
@@ -23,12 +24,14 @@ def iterative_scaling_bt(
     JMLR, 24(238):1-25, 2023.
     https://jmlr.org/papers/v24/22-1086.html
 
+    Scales parameters so that the weakest item has a score of 1.
+
     Parameters
     ----------
-    match_results : list[tuple[int, int]]
-        List of tuples (i, j) where i won over j.
-    initial_theta : dict[int, float], optional
-        Initial skill parameters for each item. If None, initializes all items to 1.0.
+    win_count_matrix : np.ndarray
+        Matrix W where W[i,j] is the number of times i beat j.
+    initial_theta : np.ndarray, optional
+        Initial skill parameters for each item. If None, initializes all items to 1/n.
     iterations : int, default=20
         Maximum number of iterations.
     tolerance : float, default=1e-6
@@ -36,61 +39,31 @@ def iterative_scaling_bt(
 
     Returns
     -------
-    dict[int, float]
-        Mapping of item ID to estimated skill parameter.
+    np.ndarray
+        Estimated skill parameters (pi).
     """
-    if initial_theta is None:
-        unique_items = set()
-        for winner, loser in match_results:
-            unique_items.add(winner)
-            unique_items.add(loser)
-        initial_theta = dict.fromkeys(unique_items, 1.0)
+    n = win_count_matrix.shape[0]
+    W_i = win_count_matrix.sum(axis=1)  # Total wins per item
+    N = comparison_count_matrix
 
-    item_ids = sorted(initial_theta.keys())
-
-    # Calculate W_i (total wins for item i)
-    W: defaultdict[int, int] = defaultdict(int)
-    for winner, _ in match_results:
-        W[winner] += 1
-
-    # Calculate n_ij (total comparisons between i and j)
-    N: defaultdict[int, defaultdict[int, int]] = defaultdict(lambda: defaultdict(int))
-    for winner, loser in match_results:
-        N[winner][loser] += 1
-        N[loser][winner] += 1
-
-    pi = np.array([initial_theta[i] for i in item_ids], dtype=float)
+    pi = np.ones(n) / n if initial_theta is None else initial_theta.copy()
 
     for _ in range(iterations):
         pi_prev = pi.copy()
+        for i in range(n):
+            # Sum_{j != i} n_ij / (pi_i + pi_j)
+            # Sufficient statistics (N) allow matrix-row operations for speed
+            denom_sum = np.sum(N[i, :] / (pi_prev[i] + pi_prev))
 
-        for i_idx, i in enumerate(item_ids):
-            W_i = W[i]
+            if W_i[i] > 0 and denom_sum > 0:
+                pi[i] = W_i[i] / denom_sum
+            elif W_i[i] == 0:
+                pi[i] = 0.0
 
-            denominator_sum = 0.0
-            for j_idx, j in enumerate(item_ids):
-                if i == j:
-                    continue
-
-                n_ij = N[i][j]
-                if n_ij > 0:
-                    denominator_sum += n_ij / (pi_prev[i_idx] + pi_prev[j_idx])
-
-            if W_i > 0 and denominator_sum > 0:
-                pi[i_idx] = W_i / denominator_sum
-            elif W_i == 0:
-                pi[i_idx] = 0.0
-
-        sum_pi = np.sum(pi)
-        if sum_pi > 0:
-            pi /= sum_pi
-
-        max_change = np.max(np.abs(pi - pi_prev))
-        if max_change < tolerance:
+        pi /= np.sum(pi)
+        if np.max(np.abs(pi - pi_prev)) < tolerance:
             break
-
-    final_pi = {item_ids[i]: float(pi[i]) for i in range(len(item_ids))}
-    return final_pi
+    return cast(np.ndarray, (pi / pi[-1]).astype(np.float64))
 
 
 def compute_hessian(pi: np.ndarray, comparison_matrix: np.ndarray) -> np.ndarray:
@@ -115,19 +88,15 @@ def compute_hessian(pi: np.ndarray, comparison_matrix: np.ndarray) -> np.ndarray
     for i in range(n - 1):
         for j in range(i, n - 1):
             if i == j:
-                # Diagonal: sum variance contributions over all possible opponents k
-                for k in range(n):
-                    if k != i:
-                        n_ik = N[i, k]
-                        if n_ik > 0:
-                            A[i, i] += n_ik * (pi[i] * pi[k]) / (pi[i] + pi[k]) ** 2
+                # Diagonal A_ii = sum_{k != i} n_ik * [pi_i * pi_k / (pi_i + pi_k)^2]
+                terms = N[i, :] * (pi[i] * pi) / (pi[i] + pi) ** 2
+                A[i, i] = np.nansum(terms)
             else:
-                # Off-diagonal: interaction term between i and j
+                # Off-diagonal A_ij = -n_ij * [pi_i * pi_j / (pi_i + pi_j)^2]
                 n_ij = N[i, j]
                 if n_ij > 0:
-                    val = -n_ij * (pi[i] * pi[j]) / (pi[i] + pi[j]) ** 2
-                    A[i, j] = val
-                    A[j, i] = val
+                    val = n_ij * (pi[i] * pi[j]) / (pi[i] + pi[j]) ** 2
+                    A[i, j] = A[j, i] = val
     return A
 
 
@@ -147,29 +116,65 @@ def compute_gradient_outer_product(pi: np.ndarray, win_count_matrix: np.ndarray)
         Gradient outer product matrix B of shape (n-1, n-1)
     """
     n = len(pi)
-    n_win = win_count_matrix
+    N = win_count_matrix + win_count_matrix.T
 
     B = np.zeros((n - 1, n - 1))
     for i in range(n - 1):
         for j in range(i, n):
-            # Total battles between this specific pair
-            n_ij_total = n_win[i, j] + n_win[j, i]
+            n_ij_total = N[i, j]
             if n_ij_total == 0:
                 continue
 
             denom_sq = (pi[i] + pi[j]) ** 2
 
-            # Diagonal contribution for model i
+            # Diagonal contribution (variance per item)
             B[i, i] += n_ij_total * (pi[j] ** 2 / denom_sq)
 
-            # Off-diagonal and diagonal contribution for model j
             if j < n - 1:
+                # Off-diagonal interaction contribution
                 off_diag_val = n_ij_total * (-pi[i] * pi[j] / denom_sq)
-                B[i, j] += off_diag_val
-                B[j, i] += off_diag_val
-                B[j, j] += n_ij_total * (pi[i] ** 2 / denom_sq)
+                B[i, j] = B[j, i] = off_diag_val
+                if i != j:
+                    B[j, j] += n_ij_total * (pi[i] ** 2 / denom_sq)
 
     return B
+
+
+def sandwich_confidence_intervals(
+    pi: np.ndarray,
+    win_count_matrix: np.ndarray,
+    comparison_count_matrix: np.ndarray,
+    n_obs: int,
+    alpha: float,
+) -> list[tuple[float, float]]:
+    n = win_count_matrix.shape[0]
+
+    # Calculate sandwich components
+    A = compute_hessian(pi, comparison_count_matrix)
+    B = compute_gradient_outer_product(pi, win_count_matrix)
+
+    # Robust Covariance calculation
+    A_inv = np.linalg.inv(A)
+    V = A_inv @ B @ A_inv
+
+    # Multiplicity correction using chi-squared for uniform validity
+    chi2_val = stats.chi2.ppf(1 - alpha, n - 1)
+    width_factor = np.sqrt(chi2_val / n_obs)
+
+    cis: list[tuple[float, float]] = []
+    for i in range(n):
+        # Point estimate transformed to log-space
+        xi_i = np.log(pi[i])
+        if i < n - 1:
+            # Reference model (last item) is fixed at xi=0
+            se_i = np.sqrt(V[i, i])
+
+            cis.append((xi_i - width_factor * se_i, xi_i + width_factor * se_i))
+        else:
+            # Reference model's score is hardcoded, so there's no uncertainty
+            cis.append((xi_i, xi_i))
+
+    return cis
 
 
 class BradleyTerryModel:
@@ -183,45 +188,70 @@ class BradleyTerryModel:
     def __init__(self) -> None:
         """Initialize the Bradley-Terry model."""
         self.fitted_: bool = False
-        self.params_: dict[int, float] | None = None
+        self.params_: np.ndarray | None = None
         self.encoder_: SequentialEncoder | None = None
-        self.confidence_intervals_: dict[int, tuple[float, float]] | None = None
+        # Sufficient statistics cached for CI efficiency
+        self._W: np.ndarray | None = None
+        self._N: np.ndarray | None = None
+        self.confidence_intervals_: list[tuple[float, float]] | None = None
 
-    def fit(self, data: PairwiseComparisonData) -> None:
-        """Fit the Bradley-Terry model to comparison data.
+    def fit(
+        self,
+        data: PairwiseComparisonData,
+        ci_method: str = "sandwich",
+        alpha: float = 0.05,
+        n_bootstrap: int = 200,
+        seed: int | None = None,
+    ) -> None:
+        """Fit the Bradley-Terry model and cache sufficient statistics.
 
         Parameters
         ----------
-        comparisons : PairwiseComparisonData
+        data : PairwiseComparisonData
             Pairwise comparison data containing win/loss observations.
 
         Returns
         -------
         None
-            Updates params_ and encoder_ in place
+            Updates params_, encoder_, and cached matrices in place.
         """
-        self.match_results_ = data.encoded_observations
-
-        # Fit model using iterative scaling
-        self.params_ = iterative_scaling_bt(data.encoded_observations)
+        # Cache sufficient statistics during fit for efficient ranking updates
+        W = data.encoded_win_count_matrix(padding=0.1)
         self.encoder_ = deepcopy(data.encoder)
+
+        # Estimate parameters (pi) using aggregated win matrix
+        self.params_ = iterative_scaling_bt(W, W + W.T)
+        self.confidence_intervals_ = self._calculate_confidence_intervals(
+            data, method=ci_method, alpha=alpha, n_bootstrap=n_bootstrap, seed=seed
+        )
         self.fitted_ = True
 
     @require_fit
     def scores(self) -> dict[str, float]:
         assert self.params_ is not None
         assert self.encoder_ is not None
-        return {self.encoder_.decode(item_idx): score for item_idx, score in self.params_.items()}
+        return {
+            self.encoder_.decode(item_idx): np.log(score)
+            for item_idx, score in enumerate(self.params_)
+        }
 
     @require_fit
-    def confidence_intervals(
+    def confidence_intervals(self) -> dict[str, tuple[float, float]]:
+        assert self.encoder_ is not None
+        assert self.confidence_intervals_ is not None
+        return {
+            self.encoder_.decode(item_idx): ci
+            for item_idx, ci in enumerate(self.confidence_intervals_)
+        }
+
+    def _calculate_confidence_intervals(
         self,
         data: PairwiseComparisonData,
         method: str = "sandwich",
         alpha: float = 0.05,
         n_bootstrap: int = 1000,
         seed: int | None = None,
-    ) -> dict[str, tuple[float, float]]:
+    ) -> list[tuple[float, float]]:
         """Compute confidence intervals for Bradley-Terry parameters.
 
         Parameters
@@ -258,28 +288,16 @@ class BradleyTerryModel:
 
         # Dispatch to appropriate method
         if method == "sandwich":
-            return self._sandwich_confidence_intervals(data, alpha)
-        return self._bootstrap_confidence_intervals(data, alpha, n_bootstrap, seed)
+            W = data.encoded_win_count_matrix(padding=0.1)
+            cis = self._sandwich_confidence_intervals(len(data), W, alpha)
+        else:
+            cis = self._bootstrap_confidence_intervals(data, alpha, n_bootstrap, seed)
 
-    def _compute_hessian_log_space(self, data: PairwiseComparisonData) -> np.ndarray:
-        """Computes the Hessian matrix (Bread) for M-1 parameters in log-space."""
-        assert self.params_ is not None
-        item_ids = sorted(self.params_.keys())
-        pi = np.array([self.params_[i] for i in item_ids], dtype=float)
-        N = data.encoded_comparison_count_matrix()
-        return compute_hessian(pi, N)
-
-    def _compute_gradient_outer_product_log_space(self, data: PairwiseComparisonData) -> np.ndarray:
-        """Computes the sum of gradient outer products (Meat) for M-1 parameters."""
-        assert self.params_ is not None
-        item_ids = sorted(self.params_.keys())
-        pi = np.array([self.params_[i] for i in item_ids], dtype=float)
-        W = data.encoded_win_count_matrix()
-        return compute_gradient_outer_product(pi, W)
+        return cis
 
     def _sandwich_confidence_intervals(
-        self, data: PairwiseComparisonData, alpha: float
-    ) -> dict[str, tuple[float, float]]:
+        self, n_obs: int, encoded_win_count_matrix: np.ndarray, alpha: float
+    ) -> list[tuple[float, float]]:
         """
         Generates multiplicity-corrected CIs using the sandwich estimator.
 
@@ -289,35 +307,13 @@ class BradleyTerryModel:
         - V_ii: The diagonal element of the sandwich covariance matrix V = A^-1 B A^-1.
         """
         assert self.params_ is not None
-        assert self.encoder_ is not None
-        item_ids = sorted(self.params_.keys())
-        n = len(item_ids)
-        n_obs = len(self.match_results_)
-
-        # Calculate sandwich components
-        A = self._compute_hessian_log_space(data)
-        B = self._compute_gradient_outer_product_log_space(data)
-
-        # Robust Covariance calculation
-        A_inv = np.linalg.inv(A)
-        V = A_inv @ B @ A_inv
-
-        # Multiplicity correction using chi-squared for uniform validity
-        chi2_val = stats.chi2.ppf(1 - alpha, n - 1)
-        width_factor = np.sqrt(chi2_val / n_obs)
-
-        cis: dict[str, tuple[float, float]] = {}
-        for i in range(n):
-            label = self.encoder_.decode(item_ids[i])
-            # Point estimate transformed to log-space
-            xi_i = np.log(self.params_[item_ids[i]])
-
-            # Reference model (last item) is fixed at xi=0
-            se_i = np.sqrt(V[i, i]) if i < n - 1 else 0.0
-
-            cis[label] = (xi_i - width_factor * se_i, xi_i + width_factor * se_i)
-
-        return cis
+        return sandwich_confidence_intervals(
+            self.params_,
+            encoded_win_count_matrix,
+            encoded_win_count_matrix + encoded_win_count_matrix.T,
+            n_obs,
+            alpha,
+        )
 
     def _bootstrap_confidence_intervals(
         self,
@@ -325,13 +321,13 @@ class BradleyTerryModel:
         alpha: float,
         n_bootstrap: int,
         seed: int | None = None,
-    ) -> dict[str, tuple[float, float]]:
+    ) -> list[tuple[float, float]]:
         """Compute percentile bootstrap confidence intervals.
 
         Parameters
         ----------
         data : PairwiseComparisonData
-            Pairwise comparison data (for compatibility, not used in bootstrap)
+            Pairwise comparison data
         alpha : float
             Significance level (e.g., 0.05 for 95% CIs)
         n_bootstrap : int
@@ -341,38 +337,35 @@ class BradleyTerryModel:
 
         Returns
         -------
-        dict[str, tuple[float, float]]
-            Mapping from item label to (lower_bound, upper_bound) confidence interval.
+        list[tuple[float, float]]
+            List of (lower_bound, upper_bound) confidence intervals for each item.
         """
         assert self.params_ is not None
         assert self.encoder_ is not None
 
-        # Set random seed for reproducibility if provided
+        n_items = len(self.params_)
+
+        # Create a single RNG for the entire bootstrap process
         if seed is not None:
             rng = np.random.Generator(np.random.PCG64(seed))
         else:
             rng = np.random.default_rng()
 
-        item_ids = sorted(self.params_.keys())
-        n_obs = len(self.match_results_)
-
         # Store bootstrap estimates
-        bootstrap_estimates: dict[int, list[float]] = {item_id: [] for item_id in item_ids}
+        bootstrap_estimates: list[list[float]] = [[] for _ in range(n_items)]
         failed_count = 0
 
         for _b in range(n_bootstrap):
-            # Resample observations with replacement
-            bootstrap_indices = rng.choice(n_obs, size=n_obs, replace=True)
-            bootstrap_matches = [self.match_results_[i] for i in bootstrap_indices]
+            # Resample observations with replacement using the same RNG
+            bootstrap_data = data.sample(len(data), with_replacement=True, rng=rng)
 
             # Fit model to bootstrap sample
             try:
-                bootstrap_params = iterative_scaling_bt(
-                    bootstrap_matches, tolerance=1e-6, iterations=20
-                )
+                W = bootstrap_data.encoded_win_count_matrix(padding=0.1)
+                bootstrap_params = np.log(iterative_scaling_bt(W, W + W.T))
 
-                for item_id in item_ids:
-                    bootstrap_estimates[item_id].append(bootstrap_params.get(item_id, 0.0))
+                for i in range(n_items):
+                    bootstrap_estimates[i].append(bootstrap_params[i])
             except Exception:
                 failed_count += 1
                 continue
@@ -385,24 +378,16 @@ class BradleyTerryModel:
             )
 
         # Compute percentile confidence intervals
-        cis: dict[str, tuple[float, float]] = {}
-        for item_id in item_ids:
+        cis: list[tuple[float, float]] = []
+        for item_id in range(len(self.params_)):
             estimates = bootstrap_estimates[item_id]
 
             if len(estimates) < 0.5 * n_bootstrap:
                 raise ValueError(
                     f"Too many bootstrap failures ({len(estimates)}/{n_bootstrap} succeeded)"
                 )
-
             ci_lower_val = float(np.percentile(estimates, 100 * alpha / 2))
             ci_upper_val = float(np.percentile(estimates, 100 * (1 - alpha / 2)))
-
-            # Clip to [0, 1]
-            ci_lower = max(0.0, ci_lower_val)
-            ci_upper = min(1.0, ci_upper_val)
-
-            # Decode to string label
-            label = self.encoder_.decode(item_id)
-            cis[label] = (ci_lower, ci_upper)
+            cis.append((ci_lower_val, ci_upper_val))
 
         return cis

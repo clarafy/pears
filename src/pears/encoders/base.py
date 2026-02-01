@@ -7,10 +7,10 @@ class SequentialEncoder:
     starting at 0.
     """
 
-    def __init__(self, labels: Sequence[str]):
-        self._labels = sorted(set(labels))
-        self._to_idx = {label: idx for idx, label in enumerate(self._labels)}
-        self._to_label = dict(enumerate(self._labels))
+    def __init__(self, items: Sequence[str]):
+        self._items = sorted(set(items))
+        self._to_idx = {label: idx for idx, label in enumerate(self._items)}
+        self._to_label = dict(enumerate(self._items))
 
     def encode(self, label: str) -> int:
         return self._to_idx[label]
@@ -19,10 +19,13 @@ class SequentialEncoder:
         return self._to_label[index]
 
     def __len__(self) -> int:
-        return len(self._labels)
+        return len(self._items)
 
     def is_valid_label(self, label: str) -> bool:
         return label in self._to_idx
 
     def is_valid_idx(self, idx: int) -> bool:
         return idx in self._to_label
+
+    def items(self) -> Sequence[str]:
+        return self._items
