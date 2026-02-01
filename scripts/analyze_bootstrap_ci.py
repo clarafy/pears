@@ -194,18 +194,19 @@ def analyze_sample_size(true_scores, sample_size, n_bootstrap, alpha, seed):
 
     # Fit Bradley-Terry model
     model = BradleyTerryModel()
-    model.fit(data)
+    model.fit(
+        data,
+        ci_method="sandwich",
+        alpha=alpha,
+        n_bootstrap=n_bootstrap,
+        seed=seed + 1000,  # Offset to ensure different seed from data generation
+    )
 
     # Get point estimates
     estimated_scores = model.scores()
 
     # Run bootstrap
-    cis = model.confidence_intervals(
-        method="bootstrap",
-        alpha=alpha,
-        n_bootstrap=n_bootstrap,
-        seed=seed + 1000,  # Offset to ensure different seed from data generation
-    )
+    cis = model.confidence_intervals()
 
     # Calculate CI widths
     ci_widths = calculate_ci_width(cis)
